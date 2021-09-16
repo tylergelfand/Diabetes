@@ -1,0 +1,134 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(pacman)
+p_load(rpart, tidyverse, rpart.plot)
+p_load(xgboost, fastAdaboost, fastDummies, tidyverse, vtable, ROCR, Matrix, caret, stringr, car, Rcpp)
+Diabetes <- read.csv("Diabetes.csv")
+#Replace 0 Values with null, excluding outcome
+Diabetes[, 1:8][Diabetes[, 1:8] == 0] <- NA
+#Omit NA Values From Model
+Diabetes <- Diabetes %>% na.omit()
+#View(Diabetes)
+```
+
+Automate ROC
+
+```{r}
+evaluate <- function(predictions, targets){
+  pred <- prediction(predictions, targets)
+  perf <- performance(pred, "tpr", "fpr")
+  auc <- performance(pred, "auc")@y.values[1]
+  
+  plot(perf)
+  text(0.8, 0.1, paste("AUC: " , round(as.numeric(auc), 3)))
+  return(perf)
+}
+```
+
+Partitioned Classification Tree
+
+```{r}
+
+ Diabetes <- Diabetes %>% mutate(ID = row_number()) 
+                          
+
+DiabetesTrain <- Diabetes %>% sample_frac(0.7)
+DiabetesTest <- Diabetes %>% anti_join(DiabetesTrain, by="ID")
+```
+
+```{r}
+DiabetesTrain %>% group_by(Outcome) %>% summarise_all(mean)
+
+trainKeep <- DiabetesTrain %>% select(Pregnancies, Glucose, BloodPressure, SkinThickness, Insulin, BMI, DiabetesPedigreeFunction,Age,Outcome)
+
+testKeep <- DiabetesTest %>% select(Pregnancies, Glucose, BloodPressure, SkinThickness, Insulin, BMI, DiabetesPedigreeFunction,Age,Outcome)
+
+```
+
+
+```{r}
+tree <- rpart(Outcome ~., data = trainKeep, maxdepth=4)
+
+prp(tree,
+type = 5, # left and right split labels (see Figure 2)
+clip.right.labs = FALSE, # full right split labels
+extra = 101, # show nbr of obs and percentages (see Figure 3)
+under = TRUE, # position extra info _under_ the boxes
+under.cex = 1, # size of text under the boxes (default is .8)
+fallen.leaves = TRUE, # put leaves at the bottom of plot
+box.palette = "GnYlRd", # color of the boxes
+branch = .3, # branch lines with narrow shoulders and down slopes
+round = 0, # no rounding of node corners i.e. use rectangles
+leaf.round = 9, # round leaf nodes (for leaves, this supersedes the round arg)
+prefix = "Liklihood", # prepend this string to the node labels
+main = "Diabetes Liklihood", # main title
+cex.main = 1.5, # use big text for main title
+branch.col = "gray", # color of branch lines
+branch.lwd = 2) # line width of branch lines
+```
+
+Classification Tree ROC Curve
+
+```{r}
+treePred <- predict(tree, newdata=testKeep)
+treeROC <- evaluate(treePred, DiabetesTest$Outcome)
+```
+
+
+
+Random Forest
+
+```{r}
+forest <- randomForest(as.factor(Outcome) ~., data=trainKeep, ntree=500, 
+                       mtry = 3, importance = TRUE,
+                       sampsize = nrow(trainKeep), replace = TRUE)
+forestPred <- predict(forest, type="prob", newdata = testKeep)[,2]
+forestROC <- evaluate(forestPred, testKeep$Outcome)
+```
+
+
+adaboost
+
+```{r}
+adaBoost <- ada(Outcome ~., data=trainKeep)
+adaPred <- predict(adaBoost, newdata=testKeep, type="prob")[,2]
+adaROC <- evaluate(adaPred, testKeep$Outcome)
+```
+
+
+xgboost
+
+```{r}
+train_X <- trainKeep %>% select(-Outcome) %>% as.matrix()
+test_X <- testKeep %>% select(-Outcome) %>% as.matrix()
+
+labels <- as.matrix(as.numeric(DiabetesTrain$Outcome))
+trainX <- xgb.DMatrix(train_X, label=labels)
+
+xgbModel <- xgboost(data = trainX,  objective = "binary:logistic" , nrounds = 50, subsample=1, colsample_bytree = 1, max_depth = 10, eta=0.2, verbose=FALSE)
+
+xgbPred <- predict(xgbModel, test_X)
+xgbROC <- evaluate(xgbPred, DiabetesTest$Outcome)
+
+```
+
+Comparison of all ROC
+
+```{r}
+plot(treeROC, col="red", lty=1)
+abline(0,1)
+plot(forestROC, col="green", add=T, lty=2)
+plot(xgbROC, col="blue", add=T, lty=3)
+plot(adaROC, col="purple", add=T, lty=4)
+
+legend("bottomright", c("Tree", "Forest", "xgBoost", "adaBoost"), col=c("red", "green", "blue", "purple"), lty=c(1:5))
+
+
+hist(xgbPred)
+length(which(xgbPred > 0.9))
+```
+
