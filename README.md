@@ -1,0 +1,2 @@
+# Diabetes
+You work in health informatics for a medical system, where diabetes is prevalent. You need to identify which women are at risk of developing gestational diabetes. Most patients are seen in an in-patient setting, and all of this information is stored in an EMR, and easily retrievable by the IT infrastructure. However, some patients are seen during in-home visits, where we have lower data accessibility and limited access to a computer. Your task is to build risk scoring algorithms for providers to identify women at high risk of gestational diabetes.
